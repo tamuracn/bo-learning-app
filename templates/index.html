@@ -16,14 +16,27 @@
   <h1>BO Explorer</h1>
 
   <div class="param-section">
+    <div class="section-title">Mode</div>
+    <div class="param-row">
+      <label>Data source</label>
+      <select id="p-mode">
+        <option value="toy">Toy function</option>
+        <option value="real">Real data (IMOD)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── Toy-only section ───────────────────────────────────────────────── -->
+  <div id="section-toy">
+  <div class="param-section">
     <div class="section-title">Toy Function</div>
     <div class="param-row">
-      <label>N1 layer</label>
-      <input type="number" id="p-n1-layer" value="1" min="1" max="10">
+      <label>Donor layer</label>
+      <input type="number" id="p-donor-layer" value="1" min="1" max="10">
     </div>
     <div class="param-row">
-      <label>N2 layer</label>
-      <input type="number" id="p-n2-layer" value="2" min="1" max="10">
+      <label>Target layer</label>
+      <input type="number" id="p-target-layer" value="2" min="1" max="10">
     </div>
     <div class="param-row">
       <label>Sigma</label>
@@ -34,18 +47,44 @@
   <div class="param-section">
     <div class="section-title">Data</div>
     <div class="param-row">
-      <label>N1 samples</label>
-      <input type="number" id="p-n1-samples" value="60" min="10" max="200">
+      <label>Donor samples</label>
+      <input type="number" id="p-donor-samples" value="60" min="10" max="200">
     </div>
     <div class="param-row">
       <label>Pool grid</label>
       <input type="number" id="p-pool-grid" value="35" min="10" max="60">
     </div>
     <div class="param-row">
-      <label>N1 threshold</label>
+      <label>Donor threshold</label>
       <input type="number" id="p-threshold" value="2.0" min="0.1" max="5" step="0.1">
     </div>
   </div>
+  </div><!-- end #section-toy -->
+
+  <!-- ── Real-data-only section ────────────────────────────────────────── -->
+  <div id="section-real" style="display:none">
+  <div class="param-section">
+    <div class="section-title">IMOD Data</div>
+    <div class="param-row">
+      <label>Donor QW</label>
+      <select id="p-donor-qw"></select>
+    </div>
+    <div class="param-row">
+      <label>Target QW</label>
+      <select id="p-target-qw"></select>
+    </div>
+    <div class="param-row">
+      <label>Donor threshold</label>
+      <input type="number" id="p-threshold-real" value="0.0" step="0.01"
+             title="In donor QW signal units. Regions where donor UCB < threshold are masked as infeasible.">
+    </div>
+    <div class="param-row">
+      <label>Donor max pts</label>
+      <input type="number" id="p-donor-max-pts" value="300" min="50" max="2000"
+             title="Max donor training rows subsampled for GP speed">
+    </div>
+  </div>
+  </div><!-- end #section-real -->
 
   <div class="param-section">
     <div class="section-title">BO Config</div>
@@ -65,6 +104,10 @@
       <label>Conf level</label>
       <input type="number" id="p-conf" value="1.28" min="1.0" max="3.0" step="0.01">
     </div>
+    <div class="param-row">
+      <label>Batch size</label>
+      <input type="number" id="p-batch-size" value="1" min="1" max="20">
+    </div>
   </div>
 
   <div class="actions">
@@ -76,7 +119,7 @@
 <!-- ── Main content ─────────────────────────────────────────────────────── -->
 <div id="main">
   <div id="tabs">
-    <button class="tab-btn active" data-tab="landscape">Landscape</button>
+    <button class="tab-btn active" data-tab="landscape" id="tab-btn-landscape">Landscape</button>
     <button class="tab-btn"        data-tab="run">Run</button>
     <button class="tab-btn"        data-tab="gp">GP Maps</button>
   </div>
@@ -85,20 +128,20 @@
   <div id="tab-landscape" class="tab-content active">
     <div class="plot-row">
       <div class="plot-box">
-        <div class="plot-title">N1 Layer (Donor)</div>
-        <div id="plot-land-n1" style="height:340px;"></div>
+        <div class="plot-title" id="land-title-donor">Donor Layer</div>
+        <div id="plot-land-donor" style="height:340px;"></div>
       </div>
       <div class="plot-box">
-        <div class="plot-title">N2 Layer (Target)</div>
-        <div id="plot-land-n2" style="height:340px;"></div>
+        <div class="plot-title" id="land-title-target">Target Layer</div>
+        <div id="plot-land-target" style="height:340px;"></div>
       </div>
     </div>
     <div class="plot-box full">
-      <div class="plot-title">Layer comparison — cross-section at peak y</div>
+      <div class="plot-title" id="land-title-slice">Layer comparison — cross-section at peak y</div>
       <div id="plot-land-slice" style="height:220px;"></div>
     </div>
     <div class="plot-box full">
-      <div class="plot-title">All layers — 3D view (drag to rotate)</div>
+      <div class="plot-title" id="land-title-3d">All layers — 3D view (drag to rotate)</div>
       <div id="plot-land-3d" style="height:460px;"></div>
     </div>
   </div>
@@ -179,7 +222,7 @@
 
     <div class="plot-row">
       <div class="plot-box">
-        <div class="plot-title">GP Posterior Mean (standardised N2)</div>
+        <div class="plot-title">GP Posterior Mean (standardised target)</div>
         <div id="plot-gp-mean" style="height:360px;"></div>
       </div>
       <div class="plot-box">

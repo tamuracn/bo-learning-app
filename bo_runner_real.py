@@ -7,7 +7,7 @@ import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
 
-from toy_model.toy_function import toy_function
+from data_model.imod_oracle import load_pool
 from botorch.models import SingleTaskGP, ModelListGP
 from botorch.fit import fit_gpytorch_mll
 from botorch.acquisition import (
@@ -24,59 +24,80 @@ def _fit_gp(X, y):
     return gp.eval()
 
 
-def _gp_map(gp, mg, Xpr_np, queried):
-    g = np.linspace(0, 1, mg)
-    Xg = torch.tensor(np.stack(np.meshgrid(g, g), axis=-1).reshape(-1, 2), dtype=torch.float64)
+def _gp_map(gp, X_pool_np, bounds, queried, mg=20):
+    """
+    2D slice of the 4D GP posterior over R MAI × R BAAc,
+    fixing Anneal Time and Temperature at their pool means.
+    Returns the same dict format as bo_runner._gp_map so the frontend works unchanged.
+    """
+    anneal_mean = X_pool_np[:, 0].mean()
+    temp_mean   = X_pool_np[:, 1].mean()
+    r_mai_vals  = np.linspace(X_pool_np[:, 2].min(), X_pool_np[:, 2].max(), mg)
+    r_baac_vals = np.linspace(X_pool_np[:, 3].min(), X_pool_np[:, 3].max(), mg)
+    R_BAAc_grid, R_MAI_grid = np.meshgrid(r_baac_vals, r_mai_vals)
+
+    X_grid_np = np.column_stack([
+        np.full(R_MAI_grid.size, anneal_mean),
+        np.full(R_MAI_grid.size, temp_mean),
+        R_MAI_grid.ravel(),
+        R_BAAc_grid.ravel(),
+    ])
+    X_grid = normalize(torch.tensor(X_grid_np, dtype=torch.float64), bounds)
     with torch.no_grad():
-        post = gp.posterior(Xg)
+        post = gp.posterior(X_grid)
         mean = post.mean.squeeze(-1).reshape(mg, mg).numpy()
         std  = post.variance.squeeze(-1).clamp(min=0).sqrt().reshape(mg, mg).numpy()
-    real = np.linspace(0, 3, mg).tolist()
-    idx  = sorted(queried)
+
+    idx = sorted(queried)
     return {
-        'x': real, 'y': real,
+        'x': r_baac_vals.tolist(), 'y': r_mai_vals.tolist(),
         'mean': mean.tolist(), 'std': std.tolist(),
-        'qx': Xpr_np[idx, 0].tolist(), 'qy': Xpr_np[idx, 1].tolist(),
+        'qx': X_pool_np[idx, 3].tolist(),   # R BAAc of queried points
+        'qy': X_pool_np[idx, 2].tolist(),   # R MAI of queried points
     }
 
 
-def run_experiment(config, on_event):
-    donor_layer  = int(config.get('donor_layer', 1))
-    target_layer = int(config.get('target_layer', 2))
-    n_donor      = int(config.get('donor_samples', 60))
-    pg           = int(config.get('pool_grid', 35))
-    thr_real     = float(config.get('donor_threshold', 2.0))
-    sigma        = float(config.get('sigma', 0.5))
-    n_iter       = int(config.get('n_iterations', 30))
-    n_seeds      = int(config.get('n_seeds', 3))
-    beta         = float(config.get('ucb_beta', 2.0))
-    conf         = float(config.get('constraint_confidence', 1.28))
-    batch_size   = max(1, int(config.get('batch_size', 1)))
-    mg           = 20
+def run_experiment_real(config, on_event):
+    donor_qw    = config.get('donor_qw', 'QW1')
+    target_qw   = config.get('target_qw', 'QW99')
+    csv_path    = config.get('csv_path', None)
+    thr_real    = float(config.get('donor_threshold', 0.0))
+    n_iter      = int(config.get('n_iterations', 30))
+    n_seeds     = int(config.get('n_seeds', 3))
+    beta        = float(config.get('ucb_beta', 2.0))
+    conf        = float(config.get('constraint_confidence', 1.28))
+    batch_size  = max(1, int(config.get('batch_size', 1)))
+    donor_max_pts = int(config.get('donor_max_pts', 300))
 
-    bounds = torch.tensor([[0., 0.], [3., 3.]], dtype=torch.float64)
+    X_pool_np, y_donor_pool_np, y_target_pool_np, X_donor_np, y_donor_train_np = load_pool(
+        csv_path, donor_qw, target_qw
+    )
+    Np = len(X_pool_np)
+    if Np == 0:
+        raise ValueError(f"No pool rows have both {donor_qw} and {target_qw}. Check QW column names.")
 
-    rng      = np.random.default_rng(42)
-    xy_donor = rng.uniform(0, 3, (n_donor, 2))
-    z_donor  = np.array([toy_function(x, y, donor_layer, sigma=sigma, noise_scale=0.05) for x, y in xy_donor])
-    X_donor_raw = torch.tensor(xy_donor, dtype=torch.float64)
-    y_donor_raw = torch.tensor(z_donor, dtype=torch.float64).unsqueeze(-1)
+    # Bounds from union of donor training and pool data
+    X_all  = np.vstack([X_pool_np, X_donor_np])
+    bounds = torch.tensor(
+        np.vstack([X_all.min(0), X_all.max(0)]),
+        dtype=torch.float64
+    )
 
-    g    = np.linspace(0, 3, pg)
-    xyp  = np.stack(np.meshgrid(g, g), axis=-1).reshape(-1, 2)
-    zp   = np.array([toy_function(x, y, target_layer, sigma=sigma, noise_scale=0.0) for x, y in xyp])
-    Xpr  = torch.tensor(xyp, dtype=torch.float64)
-    ypr  = torch.tensor(zp, dtype=torch.float64).unsqueeze(-1)
-    Np   = Xpr.shape[0]
-    Xpr_np = xyp
+    X_donor_raw  = torch.tensor(X_donor_np, dtype=torch.float64)
+    y_donor_raw  = torch.tensor(y_donor_train_np, dtype=torch.float64).unsqueeze(-1)
+    Xpr          = torch.tensor(X_pool_np, dtype=torch.float64)
+    ypr          = torch.tensor(y_target_pool_np, dtype=torch.float64).unsqueeze(-1)
 
     X_donor  = normalize(X_donor_raw, bounds)
     Xp       = normalize(Xpr, bounds)
+
     m_donor, s_donor = y_donor_raw.mean(), y_donor_raw.std().clamp(min=1e-6)
     y_donor  = (y_donor_raw - m_donor) / s_donor
+
     m_target, s_target = ypr.mean(), ypr.std().clamp(min=1e-6)
     yp       = (ypr - m_target) / s_target
-    thr      = float((thr_real - m_donor) / s_donor)
+
+    thr = float((thr_real - m_donor) / s_donor)
 
     def fmask(gp_donor):
         with torch.no_grad():
@@ -84,19 +105,23 @@ def run_experiment(config, on_event):
             ucb  = post.mean.squeeze(-1) + conf * post.variance.sqrt().squeeze(-1)
         return ucb < thr
 
-    def send(method, seed, it, sel_idx, queried, qmask, gp_target, extra=None):
+    def send(method, seed, it, sel_idx, queried, qm, gp_target, extra=None):
         best = float(ypr[sorted(queried)].max())
         sel  = float(ypr[sel_idx])
         ev   = {'method': method, 'seed': seed, 'iter': it,
                 'best': round(best, 6), 'sel': round(sel, 6)}
         if extra:
             ev.update(extra)
-        ev['gp_map'] = _gp_map(gp_target, mg, Xpr_np, queried)
+        ev['gp_map'] = _gp_map(gp_target, X_pool_np, bounds, queried)
         on_event(ev)
 
     for seed in range(n_seeds):
         torch.manual_seed(seed); np.random.seed(seed)
-        gp_donor = _fit_gp(X_donor, y_donor)
+
+        # Subsample donor training data for GP tractability
+        n_donor_use = min(len(X_donor_np), donor_max_pts)
+        idx_donor   = np.random.choice(len(X_donor_np), n_donor_use, replace=False)
+        gp_donor = _fit_gp(X_donor[idx_donor], y_donor[idx_donor])
         fm       = fmask(gp_donor)
         init     = int(torch.randint(0, Np, (1,)).item())
 

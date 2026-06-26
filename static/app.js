@@ -1,3 +1,31 @@
+// ── Mode ──────────────────────────────────────────────────────────────────
+let appMode = 'toy'; // 'toy' | 'real'
+
+async function initQWSelects() {
+  try {
+    const { qw_cols } = await fetch('/api/qw_cols').then(r => r.json());
+    ['p-donor-qw', 'p-target-qw'].forEach((id, i) => {
+      const sel = $(id);
+      sel.innerHTML = '';
+      qw_cols.forEach(qw => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = qw;
+        sel.appendChild(opt);
+      });
+      // default: donor = QW1, target = QW99
+      sel.value = i === 0 ? 'QW1' : 'QW99';
+    });
+  } catch (e) {
+    console.warn('Could not load QW columns:', e);
+  }
+}
+
+$('p-mode').addEventListener('change', e => {
+  appMode = e.target.value;
+  $('section-toy').style.display  = appMode === 'toy'  ? '' : 'none';
+  $('section-real').style.display = appMode === 'real' ? '' : 'none';
+});
+
 // ── State ─────────────────────────────────────────────────────────────────
 const state = {
   jobId: null,
@@ -34,17 +62,31 @@ const $ = id => document.getElementById(id);
 const param = id => parseFloat($(id).value);
 
 function getConfig() {
+  if (appMode === 'real') {
+    return {
+      donor_qw:              $('p-donor-qw').value,
+      target_qw:             $('p-target-qw').value,
+      donor_threshold:       param('p-threshold-real'),
+      donor_max_pts:         param('p-donor-max-pts'),
+      n_iterations:          param('p-n-iter'),
+      n_seeds:               param('p-n-seeds'),
+      ucb_beta:              param('p-ucb-beta'),
+      constraint_confidence: param('p-conf'),
+      batch_size:            param('p-batch-size'),
+    };
+  }
   return {
-    n1_layer:              param('p-n1-layer'),
-    n2_layer:              param('p-n2-layer'),
+    donor_layer:           param('p-donor-layer'),
+    target_layer:          param('p-target-layer'),
     sigma:                 param('p-sigma'),
-    n1_samples:            param('p-n1-samples'),
+    donor_samples:         param('p-donor-samples'),
     pool_grid:             param('p-pool-grid'),
-    n1_threshold:          param('p-threshold'),
+    donor_threshold:       param('p-threshold'),
     n_iterations:          param('p-n-iter'),
     n_seeds:               param('p-n-seeds'),
     ucb_beta:              param('p-ucb-beta'),
     constraint_confidence: param('p-conf'),
+    batch_size:            param('p-batch-size'),
   };
 }
 
@@ -60,13 +102,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 // ── Landscape ─────────────────────────────────────────────────────────────
 async function loadLandscape() {
+  if (appMode === 'real') { return loadLandscapeReal(); }
+
   const cfg  = getConfig();
   const grid = 50;
 
-  const [rN1, rN2, r3d] = await Promise.all([
-    fetch(`/api/landscape?layer=${cfg.n1_layer}&sigma=${cfg.sigma}&grid=${grid}`).then(r => r.json()),
-    fetch(`/api/landscape?layer=${cfg.n2_layer}&sigma=${cfg.sigma}&grid=${grid}`).then(r => r.json()),
-    fetch(`/api/landscape3d?sigma=${cfg.sigma}&n1=${cfg.n1_layer}&n2=${cfg.n2_layer}`).then(r => r.json()),
+  $('land-title-donor').textContent  = 'Donor Layer';
+  $('land-title-target').textContent = 'Target Layer';
+  $('land-title-slice').textContent  = 'Layer comparison — cross-section at peak y';
+  $('land-title-3d').textContent     = 'All layers — 3D view (drag to rotate)';
+
+  const [rDonor, rTarget, r3d] = await Promise.all([
+    fetch(`/api/landscape?layer=${cfg.donor_layer}&sigma=${cfg.sigma}&grid=${grid}`).then(r => r.json()),
+    fetch(`/api/landscape?layer=${cfg.target_layer}&sigma=${cfg.sigma}&grid=${grid}`).then(r => r.json()),
+    fetch(`/api/landscape3d?sigma=${cfg.sigma}&donor=${cfg.donor_layer}&target=${cfg.target_layer}`).then(r => r.json()),
   ]);
 
   const heatLayout = () => ({
@@ -82,22 +131,22 @@ async function loadLandscape() {
     colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } }
   }];
 
-  Plotly.react('plot-land-n1', mkHeat(rN1, 'Plasma'),  heatLayout(), plotCfg);
-  Plotly.react('plot-land-n2', mkHeat(rN2, 'Viridis'), heatLayout(), plotCfg);
+  Plotly.react('plot-land-donor',  mkHeat(rDonor,  'Plasma'),  heatLayout(), plotCfg);
+  Plotly.react('plot-land-target', mkHeat(rTarget, 'Viridis'), heatLayout(), plotCfg);
 
   // Cross-section slice at each layer's peak y
   const peakY = n => (n + 1) / n;
   const nearestIdx = (arr, val) =>
     arr.reduce((best, v, i) => Math.abs(v - val) < Math.abs(arr[best] - val) ? i : best, 0);
 
-  const sliceN1 = rN1.z[nearestIdx(rN1.y, peakY(cfg.n1_layer))];
-  const sliceN2 = rN2.z[nearestIdx(rN2.y, peakY(cfg.n2_layer))];
+  const sliceDonor  = rDonor.z[nearestIdx(rDonor.y,   peakY(cfg.donor_layer))];
+  const sliceTarget = rTarget.z[nearestIdx(rTarget.y,  peakY(cfg.target_layer))];
 
   render3DLandscape(r3d);
 
   Plotly.react('plot-land-slice', [
-    { x: rN1.x, y: sliceN1, name: `N1 (layer ${cfg.n1_layer})`, mode: 'lines', line: { color: COLORS.A, width: 2 } },
-    { x: rN2.x, y: sliceN2, name: `N2 (layer ${cfg.n2_layer})`, mode: 'lines', line: { color: COLORS.B, width: 2 } },
+    { x: rDonor.x,  y: sliceDonor,  name: `Donor (layer ${cfg.donor_layer})`,  mode: 'lines', line: { color: COLORS.A, width: 2 } },
+    { x: rTarget.x, y: sliceTarget, name: `Target (layer ${cfg.target_layer})`, mode: 'lines', line: { color: COLORS.B, width: 2 } },
   ], {
     ...darkLayout,
     xaxis: { ...darkLayout.xaxis, title: 'x' },
@@ -106,9 +155,95 @@ async function loadLandscape() {
   }, plotCfg);
 }
 
+async function loadLandscapeReal() {
+  const cfg  = getConfig();
+  const data = await fetch(
+    `/api/landscape_real?donor_qw=${encodeURIComponent(cfg.donor_qw)}&target_qw=${encodeURIComponent(cfg.target_qw)}`
+  ).then(r => r.json());
+
+  $('land-title-donor').textContent  = `Donor landscape (${data.donor_qw} score)`;
+  $('land-title-target').textContent = `Target landscape (${data.target_qw} score)`;
+  $('land-title-slice').textContent  = `${data.donor_qw} vs ${data.target_qw} score correlation (shared pool points)`;
+  $('land-title-3d').textContent     = `3D landscape — R MAI × R BAAc × QW score (drag to rotate)`;
+
+  const scatterLayout = (xTitle, yTitle) => ({
+    ...darkLayout,
+    margin: { l: 55, r: 20, t: 10, b: 50 },
+    xaxis: { ...darkLayout.xaxis, title: xTitle },
+    yaxis: { ...darkLayout.yaxis, title: yTitle },
+  });
+
+  const mkScatter = (d, key, colorscale, name) => [{
+    type: 'scatter', mode: 'markers',
+    x: d.r_baac, y: d.r_mai,
+    marker: {
+      color: d[key], colorscale, showscale: true, size: 6,
+      colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } },
+      line: { color: 'rgba(0,0,0,0.3)', width: 0.5 },
+    },
+    name, hovertemplate: `R BAAc: %{x:.3f}<br>R MAI: %{y:.3f}<br>Score: %{marker.color:.4f}<extra>${name}</extra>`,
+  }];
+
+  Plotly.react('plot-land-donor',
+    mkScatter(data.donor, 'score', 'Plasma', data.donor_qw),
+    scatterLayout('R BAAc', 'R MAI'), plotCfg);
+
+  Plotly.react('plot-land-target',
+    mkScatter(data.target, 'score', 'Viridis', data.target_qw),
+    scatterLayout('R BAAc', 'R MAI'), plotCfg);
+
+  // Correlation scatter at shared pool points
+  Plotly.react('plot-land-slice', [{
+    type: 'scatter', mode: 'markers',
+    x: data.target.donor_score, y: data.target.score,
+    marker: { color: COLORS.A, size: 5, opacity: 0.7, line: { color: 'rgba(0,0,0,0.3)', width: 0.5 } },
+    hovertemplate: `${data.donor_qw}: %{x:.4f}<br>${data.target_qw}: %{y:.4f}<extra></extra>`,
+    name: 'Pool points',
+  }], {
+    ...darkLayout,
+    xaxis: { ...darkLayout.xaxis, title: `${data.donor_qw} score` },
+    yaxis: { ...darkLayout.yaxis, title: `${data.target_qw} score` },
+    showlegend: false,
+  }, plotCfg);
+
+  // 3D scatter for both donor and target
+  Plotly.react('plot-land-3d', [
+    {
+      type: 'scatter3d', mode: 'markers',
+      x: data.donor.r_baac, y: data.donor.r_mai, z: data.donor.score,
+      name: `Donor (${data.donor_qw})`,
+      marker: { color: data.donor.score, colorscale: 'Plasma', size: 4, opacity: 0.8,
+                colorbar: { thickness: 10, len: 0.5, x: 1.05, title: { text: data.donor_qw, font: { size: 10 } } } },
+      hovertemplate: `R BAAc: %{x:.3f}<br>R MAI: %{y:.3f}<br>${data.donor_qw}: %{z:.4f}<extra>Donor</extra>`,
+    },
+    {
+      type: 'scatter3d', mode: 'markers',
+      x: data.target.r_baac, y: data.target.r_mai, z: data.target.score,
+      name: `Target (${data.target_qw})`,
+      marker: { color: data.target.score, colorscale: 'Viridis', size: 4, opacity: 0.8,
+                colorbar: { thickness: 10, len: 0.5, x: 1.15, title: { text: data.target_qw, font: { size: 10 } } } },
+      hovertemplate: `R BAAc: %{x:.3f}<br>R MAI: %{y:.3f}<br>${data.target_qw}: %{z:.4f}<extra>Target</extra>`,
+    },
+  ], {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    scene: {
+      bgcolor: '#1a1d27',
+      xaxis: { title: 'R BAAc', gridcolor: '#2e3245', color: '#8892aa', tickfont: { size: 9 } },
+      yaxis: { title: 'R MAI',  gridcolor: '#2e3245', color: '#8892aa', tickfont: { size: 9 } },
+      zaxis: { title: 'QW score', gridcolor: '#2e3245', color: '#8892aa', tickfont: { size: 9 } },
+      camera: { eye: { x: 1.7, y: 1.7, z: 1.2 } },
+    },
+    legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(26,29,39,0.8)', bordercolor: '#2e3245',
+              borderwidth: 1, font: { color: '#e2e8f0', size: 11 } },
+    font:   { color: '#8892aa', family: 'Inter, sans-serif', size: 11 },
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    showlegend: true,
+  }, { ...plotCfg, displayModeBar: true, modeBarButtonsToRemove: ['toImage'] });
+}
+
 function render3DLandscape(d) {
-  const layerColor = { [d.n1]: COLORS.A, [d.n2]: COLORS.B };
-  const layerLabel = { [d.n1]: `N1 (layer ${d.n1})`, [d.n2]: `N2 (layer ${d.n2})` };
+  const layerColor = { [d.donor]: COLORS.A, [d.target]: COLORS.B };
+  const layerLabel = { [d.donor]: `Donor (layer ${d.donor})`, [d.target]: `Target (layer ${d.target})` };
 
   const traces = d.layers.map(layer => {
     const color = layerColor[layer.n];
@@ -175,12 +310,13 @@ $('btn-run').addEventListener('click', async () => {
   $('error-box').style.display    = 'none';
   $('summary-box').style.display  = 'none';
   setStatus('running', 'Starting experiment...');
-  initConvergencePlots(cfg.n_iterations, cfg.n1_threshold);
+  initConvergencePlots(cfg.n_iterations, cfg.donor_threshold);
 
   document.querySelector('[data-tab="run"]').click();
 
   try {
-    const res = await fetch('/api/run', {
+    const endpoint = appMode === 'real' ? '/api/run_real' : '/api/run';
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
@@ -265,7 +401,7 @@ function initConvergencePlots(nIter, threshold) {
   const thresh = {
     x: [1, nIter], y: [threshold, threshold],
     mode: 'lines', line: { color: '#8892aa', dash: 'dot', width: 1 },
-    name: `N1 threshold (${threshold})`, showlegend: true,
+    name: `Donor threshold (${threshold})`, showlegend: true,
   };
   const base = {
     ...darkLayout, showlegend: true,
@@ -299,7 +435,7 @@ function buildConvergenceTraces(threshold, nIter, seedFilter = 'all', withBands 
   const thresh = {
     x: [1, nIter], y: [threshold, threshold],
     mode: 'lines', line: { color: '#8892aa', dash: 'dot', width: 1 },
-    name: `N1 thr (${threshold})`, showlegend: true,
+    name: `Donor thr (${threshold})`, showlegend: true,
   };
   const traces_conv = [thresh], traces_sel = [thresh];
 
@@ -509,3 +645,4 @@ function renderGPMaps(d) {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 loadLandscape();
+initQWSelects();
