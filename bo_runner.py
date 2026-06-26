@@ -90,8 +90,7 @@ def run_experiment(config, on_event):
                 'best': round(best, 6), 'sel': round(sel, 6)}
         if extra:
             ev.update(extra)
-        if seed == 0:
-            ev['gp_map'] = _gp_map(gn2, mg, Xpr_np, queried)
+        ev['gp_map'] = _gp_map(gn2, mg, Xpr_np, queried)
         on_event(ev)
 
     for seed in range(n_seeds):

@@ -41,6 +41,26 @@ def landscape():
     return jsonify(result)
 
 
+@app.route('/api/landscape3d')
+def landscape3d():
+    from toy_model.toy_function import toy_function
+    sigma = float(request.args.get('sigma', 0.5))
+    grid  = int(request.args.get('grid', 35))
+    n1    = int(request.args.get('n1', 1))
+    n2    = int(request.args.get('n2', 2))
+
+    g = np.linspace(0, 3, grid)
+    xx, yy = np.meshgrid(g, g)
+    layers = []
+    for n in sorted(set([n1, n2])):
+        zz = np.array([[toy_function(float(xx[i, j]), float(yy[i, j]), n,
+                                     sigma=sigma, noise_scale=0.0)
+                        for j in range(grid)] for i in range(grid)])
+        layers.append({'n': n, 'z': zz.tolist()})
+
+    return jsonify({'x': g.tolist(), 'y': g.tolist(), 'layers': layers, 'n1': n1, 'n2': n2})
+
+
 @app.route('/api/run', methods=['POST'])
 def run():
     from bo_runner import run_experiment
