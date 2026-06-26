@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BO Transfer Learning Explorer</title>
+  <script src="https://cdn.plot.ly/plotly-2.34.0.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242736;
+      --border: #2e3245;
+      --text: #e2e8f0;
+      --muted: #8892aa;
+      --accent: #6c8ef5;
+      --ca: #E8593C;
+      --cb: #3B8BD4;
+      --cc: #2CA02C;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 230px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    #sidebar h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--border);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .param-section {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .param-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      gap: 6px;
+    }
+
+    .param-row label {
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .param-row input[type="number"],
+    .param-row input[type="range"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .param-row input[type="number"] {
+      width: 68px;
+      padding: 3px 6px;
+      text-align: right;
+    }
+
+    .param-row input[type="number"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .param-row input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      cursor: pointer;
+    }
+
+    .param-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+    }
+
+    .range-row { flex-direction: column; align-items: stretch; gap: 3px; }
+    .range-header { display: flex; justify-content: space-between; }
+    .range-val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); }
+
+    .btn {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      margin-bottom: 6px;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
+
+    .actions { padding: 10px 14px; }
+
+    /* ── Main ───────────────────────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ───────────────────────────────────────────────────────────── */
+    #tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 0 16px;
+      gap: 4px;
+    }
+
+    .tab-btn {
+      padding: 10px 16px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Tab content ────────────────────────────────────────────────────── */
+    .tab-content {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .tab-content.active { display: flex; flex-direction: column; gap: 12px; }
+
+    .plot-row { display: flex; gap: 12px; }
+    .plot-box {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .plot-box.full { flex: none; width: 100%; }
+
+    .plot-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 10px 14px 0;
+    }
+
+    /* ── Status bar ─────────────────────────────────────────────────────── */
+    #status-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    .status-dot.running { background: var(--warn); animation: pulse 1s infinite; }
+    .status-dot.done { background: var(--success); }
+    .status-dot.error { background: var(--danger); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    #status-text { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+    #status-progress { font-size: 11px; color: var(--muted); }
+
+    /* Progress bar */
+    #progress-wrap {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* ── Summary table ──────────────────────────────────────────────────── */
+    #summary-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: none;
+    }
+    #summary-box h3 { font-size: 12px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+    td { padding: 5px 8px; font-family: 'JetBrains Mono', monospace; }
+    tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+    .winner-row td { color: var(--success); }
+
+    /* ── GP Map controls ────────────────────────────────────────────────── */
+    #gp-controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .method-pills { display: flex; gap: 6px; }
+    .method-pill {
+      padding: 4px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .method-pill.active-a { background: var(--ca); border-color: var(--ca); color: #fff; }
+    .method-pill.active-b { background: var(--cb); border-color: var(--cb); color: #fff; }
+    .method-pill.active-c { background: var(--cc); border-color: var(--cc); color: #fff; }
+
+    .gp-iter-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px; }
+    #gp-iter-slider { flex: 1; }
+    #gp-iter-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; min-width: 40px; }
+
+    #gp-note { font-size: 11px; color: var(--muted); }
+
+    /* ── Error box ──────────────────────────────────────────────────────── */
+    #error-box {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid var(--danger);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #fca5a5;
+      white-space: pre-wrap;
+      display: none;
+    }
+
+    /* ── Legend ─────────────────────────────────────────────────────────── */
+    .legend { display: flex; gap: 16px; padding: 6px 14px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+<aside id="sidebar">
+  <h1>BO Explorer</h1>
+
+  <div class="param-section">
+    <div class="section-title">Layers</div>
+    <div class="param-row">
+      <label>N1 layer</label>
+      <input type="number" id="p-n1-layer" value="1" min="1" max="10">
+    </div>
+    <div class="param-row">
+      <label>N2 layer</label>
+      <input type="number" id="p-n2-layer" value="2" min="1" max="10">
+    </div>
+    <div class="param-row">
+      <label>Sigma</label>
+      <input type="number" id="p-sigma" value="0.5" min="0.05" max="2" step="0.05">
+    </div>
+  </div>
+
+  <div class="param-section">
+    <div class="section-title">Data</div>
+    <div class="param-row">
+      <label>N1 samples</label>
+      <input type="number" id="p-n1-samples" value="60" min="10" max="200">
+    </div>
+    <div class="param-row">
+      <label>Pool grid</label>
+      <input type="number" id="p-pool-grid" value="35" min="10" max="60">
+    </div>
+    <div class="param-row">
+      <label>N1 threshold</label>
+      <input type="number" id="p-threshold" value="2.0" min="0.1" max="5" step="0.1">
+    </div>
+  </div>
+
+  <div class="param-section">
+    <div class="section-title">BO Config</div>
+    <div class="param-row">
+      <label>Iterations</label>
+      <input type="number" id="p-n-iter" value="30" min="5" max="100">
+    </div>
+    <div class="param-row">
+      <label>Seeds</label>
+      <input type="number" id="p-n-seeds" value="3" min="1" max="10">
+    </div>
+    <div class="param-row">
+      <label>UCB beta</label>
+      <input type="number" id="p-ucb-beta" value="2.0" min="0.1" max="10" step="0.1">
+    </div>
+    <div class="param-row">
+      <label>Conf level</label>
+      <input type="number" id="p-conf" value="1.28" min="1.0" max="3.0" step="0.01">
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-secondary" id="btn-landscape">View Landscape</button>
+    <button class="btn btn-primary" id="btn-run">Run Experiment</button>
+  </div>
+</aside>
+
+<!-- ── Main content ─────────────────────────────────────────────────────── -->
+<div id="main">
+  <div id="tabs">
+    <button class="tab-btn active" data-tab="landscape">Landscape</button>
+    <button class="tab-btn" data-tab="run">Run</button>
+    <button class="tab-btn" data-tab="gp">GP Maps</button>
+  </div>
+
+  <!-- ── Landscape tab ───────────────────────────────────────────────── -->
+  <div id="tab-landscape" class="tab-content active">
+    <div class="plot-row">
+      <div class="plot-box">
+        <div class="plot-title">N1 Layer (Donor)</div>
+        <div id="plot-land-n1" style="height:340px;"></div>
+      </div>
+      <div class="plot-box">
+        <div class="plot-title">N2 Layer (Target)</div>
+        <div id="plot-land-n2" style="height:340px;"></div>
+      </div>
+    </div>
+    <div class="plot-box full">
+      <div class="plot-title">Layer comparison (cross-section at peak y)</div>
+      <div id="plot-land-slice" style="height:220px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Run tab ─────────────────────────────────────────────────────── -->
+  <div id="tab-run" class="tab-content">
+    <div id="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Idle — configure parameters and click Run</span>
+      <span id="status-progress"></span>
+    </div>
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--ca)"></div>Method A — HM+UCB</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--cb)"></div>Method B — CEI</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--cc)"></div>Method C — HM+EI</div>
+    </div>
+
+    <div class="plot-row">
+      <div class="plot-box">
+        <div class="plot-title">Convergence — best so far</div>
+        <div id="plot-conv" style="height:300px;"></div>
+      </div>
+      <div class="plot-box">
+        <div class="plot-title">Selected score per iteration</div>
+        <div id="plot-sel" style="height:300px;"></div>
+      </div>
+    </div>
+
+    <div id="error-box"></div>
+
+    <div id="summary-box">
+      <h3>Results Summary</h3>
+      <table id="summary-table">
+        <thead><tr>
+          <th>Method</th><th>Final best (mean±std)</th><th>AUC (mean±std)</th><th>Wins</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── GP Maps tab ─────────────────────────────────────────────────── -->
+  <div id="tab-gp" class="tab-content">
+    <div id="gp-controls">
+      <div>
+        <div class="section-title" style="margin-bottom:6px">Method</div>
+        <div class="method-pills">
+          <button class="method-pill active-a" data-method="A">A — HM+UCB</button>
+          <button class="method-pill" data-method="B">B — CEI</button>
+          <button class="method-pill" data-method="C">C — HM+EI</button>
+        </div>
+      </div>
+      <div class="gp-iter-row">
+        <span class="section-title" style="margin-bottom:0;white-space:nowrap">Iteration</span>
+        <input type="range" id="gp-iter-slider" min="1" max="30" value="1">
+        <span id="gp-iter-val">1</span>
+      </div>
+      <div id="gp-note">Run an experiment first to view GP maps (seed 0 only)</div>
+    </div>
+
+    <div class="plot-row">
+      <div class="plot-box">
+        <div class="plot-title">GP Posterior Mean (standardised N2)</div>
+        <div id="plot-gp-mean" style="height:360px;"></div>
+      </div>
+      <div class="plot-box">
+        <div class="plot-title">GP Posterior Std</div>
+        <div id="plot-gp-std" style="height:360px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+const state = {
+  jobId: null,
+  pollTimer: null,
+  since: 0,
+  totalIter: 30,
+  totalSeeds: 3,
+  // data[method] = { [seed]: [{iter, best, sel},...] }
+  data: { A: {}, B: {}, C: {} },
+  gpMethod: 'A',
+  gpIter: 1,
+  maxGpIter: 1,
+};
+
+const COLORS = { A: '#E8593C', B: '#3B8BD4', C: '#2CA02C' };
+const ALPHA  = { A: 'rgba(232,89,60,0.15)', B: 'rgba(59,139,212,0.15)', C: 'rgba(44,160,44,0.15)' };
+const NAMES  = { A: 'HM+UCB', B: 'CEI', C: 'HM+EI' };
+
+const plotCfg = { displayModeBar: false, responsive: true };
+const darkLayout = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(0,0,0,0)',
+  font: { color: '#8892aa', family: 'Inter, sans-serif', size: 11 },
+  xaxis: { gridcolor: '#2e3245', zerolinecolor: '#2e3245' },
+  yaxis: { gridcolor: '#2e3245', zerolinecolor: '#2e3245' },
+  legend: { bgcolor: 'rgba(0,0,0,0)', bordercolor: '#2e3245', borderwidth: 1, font: { size: 10 } },
+  margin: { l: 50, r: 20, t: 20, b: 50 },
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const param = id => parseFloat($(id).value);
+
+function getConfig() {
+  return {
+    n1_layer: param('p-n1-layer'),
+    n2_layer: param('p-n2-layer'),
+    sigma: param('p-sigma'),
+    n1_samples: param('p-n1-samples'),
+    pool_grid: param('p-pool-grid'),
+    n1_threshold: param('p-threshold'),
+    n_iterations: param('p-n-iter'),
+    n_seeds: param('p-n-seeds'),
+    ucb_beta: param('p-ucb-beta'),
+    constraint_confidence: param('p-conf'),
+  };
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Landscape ─────────────────────────────────────────────────────────────
+async function loadLandscape() {
+  const cfg = getConfig();
+  const sigma = cfg.sigma;
+  const grid = 50;
+
+  const [rN1, rN2] = await Promise.all([
+    fetch(`/api/landscape?layer=${cfg.n1_layer}&sigma=${sigma}&grid=${grid}`).then(r => r.json()),
+    fetch(`/api/landscape?layer=${cfg.n2_layer}&sigma=${sigma}&grid=${grid}`).then(r => r.json()),
+  ]);
+
+  const heatLayout = (title) => ({
+    ...darkLayout,
+    margin: { l: 50, r: 20, t: 10, b: 50 },
+    xaxis: { ...darkLayout.xaxis, title: 'x' },
+    yaxis: { ...darkLayout.yaxis, title: 'y' },
+  });
+
+  const mkHeat = (d, colorscale) => [{
+    type: 'heatmap', x: d.x, y: d.y, z: d.z,
+    colorscale, showscale: true,
+    colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } }
+  }];
+
+  Plotly.react('plot-land-n1', mkHeat(rN1, 'Plasma'), heatLayout(), plotCfg);
+  Plotly.react('plot-land-n2', mkHeat(rN2, 'Viridis'), heatLayout(), plotCfg);
+
+  // Cross-section at peak y for N2
+  const peakY_n2 = cfg.n2_layer;
+  const peak_x0 = 2 / cfg.n2_layer, peak_y0 = (cfg.n2_layer + 1) / cfg.n2_layer;
+  const yIdx = rN2.y.reduce((best, v, i) => Math.abs(v - peak_y0) < Math.abs(rN2.y[best] - peak_y0) ? i : best, 0);
+  const sliceN2 = rN2.z[yIdx];
+  const yIdxN1 = rN1.y.reduce((best, v, i) => Math.abs(v - (cfg.n1_layer+1)/cfg.n1_layer) < Math.abs(rN1.y[best] - (cfg.n1_layer+1)/cfg.n1_layer) ? i : best, 0);
+  const sliceN1 = rN1.z[yIdxN1];
+
+  const sliceTraces = [
+    { x: rN1.x, y: sliceN1, name: `N1 (layer ${cfg.n1_layer})`, mode: 'lines', line: { color: COLORS.A, width: 2 } },
+    { x: rN2.x, y: sliceN2, name: `N2 (layer ${cfg.n2_layer})`, mode: 'lines', line: { color: COLORS.B, width: 2 } },
+  ];
+  Plotly.react('plot-land-slice', sliceTraces, {
+    ...darkLayout,
+    xaxis: { ...darkLayout.xaxis, title: 'x' },
+    yaxis: { ...darkLayout.yaxis, title: 'Signal' },
+    showlegend: true,
+  }, plotCfg);
+}
+
+$('btn-landscape').addEventListener('click', () => {
+  // Auto-switch to landscape tab
+  document.querySelector('[data-tab="landscape"]').click();
+  loadLandscape();
+});
+
+// ── Run Experiment ────────────────────────────────────────────────────────
+$('btn-run').addEventListener('click', async () => {
+  const cfg = getConfig();
+  state.totalIter = cfg.n_iterations;
+  state.totalSeeds = cfg.n_seeds;
+  state.data = { A: {}, B: {}, C: {} };
+  state.since = 0;
+  state.jobId = null;
+  state.maxGpIter = 1;
+
+  $('btn-run').disabled = true;
+  $('error-box').style.display = 'none';
+  $('summary-box').style.display = 'none';
+  setStatus('running', 'Starting experiment...');
+  initConvergencePlots(cfg.n_iterations, cfg.n1_threshold);
+
+  document.querySelector('[data-tab="run"]').click();
+
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg)
+    });
+    const { job_id } = await res.json();
+    state.jobId = job_id;
+    startPolling();
+  } catch (e) {
+    setStatus('error', 'Failed to start experiment');
+    $('btn-run').disabled = false;
+  }
+});
+
+function startPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(pollJob, 1200);
+}
+
+async function pollJob() {
+  if (!state.jobId) return;
+  try {
+    const res = await fetch(`/api/poll/${state.jobId}?since=${state.since}`);
+    const body = await res.json();
+
+    if (body.error && !body.events?.length) {
+      clearInterval(state.pollTimer);
+      setStatus('error', 'Error during run');
+      $('error-box').textContent = body.error;
+      $('error-box').style.display = 'block';
+      $('btn-run').disabled = false;
+      return;
+    }
+
+    body.events.forEach(ev => {
+      const { method, seed, iter, best, sel } = ev;
+      if (!state.data[method][seed]) state.data[method][seed] = [];
+      state.data[method][seed].push({ iter, best, sel });
+      if (seed === 0 && iter > state.maxGpIter) state.maxGpIter = iter;
+    });
+    state.since = body.total;
+
+    const cur = body.current;
+    if (cur.method) {
+      const totalEvents = state.totalIter * state.totalSeeds * 3;
+      const pct = Math.min(100, Math.round(state.since / totalEvents * 100));
+      $('progress-bar').style.width = pct + '%';
+      setStatus('running',
+        `Method ${cur.method} | seed ${cur.seed + 1}/${state.totalSeeds} | iter ${cur.iter}/${state.totalIter}`);
+      $('status-progress').textContent = `${pct}%`;
+    }
+
+    if (body.events.length) updateConvergencePlots();
+
+    // Update GP slider max
+    $('gp-iter-slider').max = state.maxGpIter;
+
+    if (body.done) {
+      clearInterval(state.pollTimer);
+      $('progress-bar').style.width = '100%';
+      setStatus('done', 'Experiment complete');
+      $('status-progress').textContent = '';
+      $('btn-run').disabled = false;
+      updateConvergencePlots(true);
+      showSummary();
+      $('gp-note').textContent = `Seed 0 GP maps available — ${state.maxGpIter} iterations`;
+    }
+  } catch (e) {
+    console.error('Poll error:', e);
+  }
+}
+
+// ── Status ────────────────────────────────────────────────────────────────
+function setStatus(state, msg) {
+  const dot = $('status-dot');
+  dot.className = 'status-dot ' + state;
+  $('status-text').textContent = msg;
+}
+
+// ── Convergence plots ─────────────────────────────────────────────────────
+function initConvergencePlots(nIter, threshold) {
+  const base = {
+    ...darkLayout,
+    xaxis: { ...darkLayout.xaxis, title: 'Iteration', range: [1, nIter] },
+    showlegend: true,
+  };
+  const thresh = {
+    x: [1, nIter], y: [threshold, threshold],
+    mode: 'lines', line: { color: '#8892aa', dash: 'dot', width: 1 },
+    name: `N1 threshold (${threshold})`, showlegend: true
+  };
+
+  Plotly.react('plot-conv', [thresh], {
+    ...base, yaxis: { ...darkLayout.yaxis, title: 'Best value so far' }
+  }, plotCfg);
+  Plotly.react('plot-sel', [thresh], {
+    ...base, yaxis: { ...darkLayout.yaxis, title: 'Selected score' }
+  }, plotCfg);
+}
+
+function aggregateMethod(method) {
+  const seeds = Object.values(state.data[method]);
+  if (!seeds.length) return null;
+  const maxLen = Math.max(...seeds.map(s => s.length));
+  const iters = Array.from({ length: maxLen }, (_, i) => i + 1);
+  const means_best = iters.map(i => {
+    const vals = seeds.map(s => s[i - 1]?.best).filter(v => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b) / vals.length : null;
+  });
+  const stds_best = iters.map(i => {
+    const vals = seeds.map(s => s[i - 1]?.best).filter(v => v != null);
+    if (vals.length < 2) return 0;
+    const m = vals.reduce((a, b) => a + b) / vals.length;
+    return Math.sqrt(vals.reduce((a, b) => a + (b - m) ** 2, 0) / vals.length);
+  });
+  const means_sel = iters.map(i => {
+    const vals = seeds.map(s => s[i - 1]?.sel).filter(v => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b) / vals.length : null;
+  });
+  const stds_sel = iters.map(i => {
+    const vals = seeds.map(s => s[i - 1]?.sel).filter(v => v != null);
+    if (vals.length < 2) return 0;
+    const m = vals.reduce((a, b) => a + b) / vals.length;
+    return Math.sqrt(vals.reduce((a, b) => a + (b - m) ** 2, 0) / vals.length);
+  });
+  return { iters, means_best, stds_best, means_sel, stds_sel };
+}
+
+function updateConvergencePlots(final = false) {
+  const threshold = param('p-threshold');
+  const nIter = param('p-n-iter');
+
+  const thresh = {
+    x: [1, nIter], y: [threshold, threshold],
+    mode: 'lines', line: { color: '#8892aa', dash: 'dot', width: 1 },
+    name: `N1 thr (${threshold})`, showlegend: true
+  };
+
+  const traces_conv = [thresh], traces_sel = [thresh];
+
+  for (const method of ['A', 'B', 'C']) {
+    const agg = aggregateMethod(method);
+    if (!agg) continue;
+    const { iters, means_best, stds_best, means_sel, stds_sel } = agg;
+    const color = COLORS[method];
+    const alpha = ALPHA[method];
+
+    // Mean line
+    traces_conv.push({
+      x: iters, y: means_best, mode: 'lines+markers',
+      name: `${NAMES[method]}`, line: { color, width: 2 },
+      marker: { size: 4 }, showlegend: true
+    });
+    // Std band (only if multiple seeds available)
+    if (final && Object.keys(state.data[method]).length > 1) {
+      const upper = iters.map((_, i) => means_best[i] + stds_best[i]);
+      const lower = iters.map((_, i) => means_best[i] - stds_best[i]);
+      traces_conv.push({
+        x: [...iters, ...iters.slice().reverse()],
+        y: [...upper, ...lower.slice().reverse()],
+        fill: 'toself', fillcolor: alpha,
+        line: { color: 'transparent' }, showlegend: false, hoverinfo: 'skip'
+      });
+    }
+
+    traces_sel.push({
+      x: iters, y: means_sel, mode: 'lines+markers',
+      name: `${NAMES[method]}`, line: { color, width: 2 },
+      marker: { size: 4 }, showlegend: true
+    });
+    if (final && Object.keys(state.data[method]).length > 1) {
+      const upper = iters.map((_, i) => means_sel[i] + stds_sel[i]);
+      const lower = iters.map((_, i) => means_sel[i] - stds_sel[i]);
+      traces_sel.push({
+        x: [...iters, ...iters.slice().reverse()],
+        y: [...upper, ...lower.slice().reverse()],
+        fill: 'toself', fillcolor: alpha,
+        line: { color: 'transparent' }, showlegend: false, hoverinfo: 'skip'
+      });
+    }
+  }
+
+  const base = {
+    ...darkLayout, showlegend: true,
+    xaxis: { ...darkLayout.xaxis, title: 'Iteration' },
+  };
+  Plotly.react('plot-conv', traces_conv, {
+    ...base, yaxis: { ...darkLayout.yaxis, title: 'Best value so far' }
+  }, plotCfg);
+  Plotly.react('plot-sel', traces_sel, {
+    ...base, yaxis: { ...darkLayout.yaxis, title: 'Selected score' }
+  }, plotCfg);
+}
+
+// ── Summary table ─────────────────────────────────────────────────────────
+function showSummary() {
+  const stats = {};
+  const nSeeds = param('p-n-seeds');
+  let winCounts = { A: 0, B: 0, C: 0 };
+
+  for (const m of ['A', 'B', 'C']) {
+    const seeds = Object.values(state.data[m]);
+    if (!seeds.length) continue;
+    const finals = seeds.map(s => s[s.length - 1]?.best ?? 0);
+    const aucs   = seeds.map(s => {
+      const vals = s.map(e => e.best);
+      return vals.reduce((a, b) => a + b, 0); // trapezoid approximation (uniform spacing)
+    });
+    const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const std  = arr => {
+      const m = mean(arr);
+      return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length);
+    };
+    stats[m] = {
+      finalMean: mean(finals).toFixed(4),
+      finalStd: std(finals).toFixed(4),
+      aucMean: mean(aucs).toFixed(1),
+      aucStd: std(aucs).toFixed(1),
+      finals,
+    };
+  }
+
+  // Count wins per seed
+  for (let i = 0; i < nSeeds; i++) {
+    const scores = {};
+    for (const m of ['A', 'B', 'C']) {
+      if (state.data[m][i]) {
+        const s = state.data[m][i];
+        scores[m] = s[s.length - 1]?.best ?? -Infinity;
+      }
+    }
+    const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (winner) winCounts[winner]++;
+  }
+
+  const tbody = $('summary-table').querySelector('tbody');
+  tbody.innerHTML = '';
+  const methodLabels = { A: 'A — HM+UCB', B: 'B — CEI', C: 'C — HM+EI' };
+  const winner = Object.entries(winCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+  for (const m of ['A', 'B', 'C']) {
+    if (!stats[m]) continue;
+    const tr = document.createElement('tr');
+    if (m === winner) tr.className = 'winner-row';
+    tr.innerHTML = `
+      <td>${methodLabels[m]}${m === winner ? ' ★' : ''}</td>
+      <td>${stats[m].finalMean} ± ${stats[m].finalStd}</td>
+      <td>${stats[m].aucMean} ± ${stats[m].aucStd}</td>
+      <td>${winCounts[m]} / ${nSeeds}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  $('summary-box').style.display = 'block';
+}
+
+// ── GP Maps ───────────────────────────────────────────────────────────────
+document.querySelectorAll('.method-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.method-pill').forEach(p => {
+      p.className = 'method-pill';
+    });
+    const m = pill.dataset.method;
+    pill.className = `method-pill active-${m.toLowerCase()}`;
+    state.gpMethod = m;
+    loadGPMap();
+  });
+});
+
+$('gp-iter-slider').addEventListener('input', e => {
+  state.gpIter = parseInt(e.target.value);
+  $('gp-iter-val').textContent = state.gpIter;
+  loadGPMap();
+});
+
+async function loadGPMap() {
+  if (!state.jobId) return;
+  try {
+    const url = `/api/gp_map/${state.jobId}?method=${state.gpMethod}&seed=0&iter=${state.gpIter}`;
+    const data = await fetch(url).then(r => r.json());
+    if (data.error) return;
+    renderGPMaps(data);
+  } catch (e) {
+    console.error('GP map error:', e);
+  }
+}
+
+function renderGPMaps(d) {
+  const queried = {
+    x: d.qx, y: d.qy, mode: 'markers',
+    marker: { color: '#fff', size: 5, symbol: 'circle', line: { color: '#333', width: 1 } },
+    name: 'Queried', showlegend: false
+  };
+
+  const baseHeat = {
+    ...darkLayout,
+    margin: { l: 50, r: 20, t: 10, b: 50 },
+    xaxis: { ...darkLayout.xaxis, title: 'x' },
+    yaxis: { ...darkLayout.yaxis, title: 'y', scaleanchor: 'x', scaleratio: 1 },
+  };
+
+  Plotly.react('plot-gp-mean', [
+    { type: 'heatmap', x: d.x, y: d.y, z: d.mean, colorscale: 'RdBu', zmid: 0,
+      colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } } },
+    queried
+  ], baseHeat, plotCfg);
+
+  Plotly.react('plot-gp-std', [
+    { type: 'heatmap', x: d.x, y: d.y, z: d.std, colorscale: 'Magma',
+      colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } } },
+    queried
+  ], baseHeat, plotCfg);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadLandscape();
+</script>
+</body>
+</html>
