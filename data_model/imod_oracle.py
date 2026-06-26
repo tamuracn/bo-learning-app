@@ -4,7 +4,7 @@ import pandas as pd
 
 FEATURE_COLS = ["Anneal Time", "Temperature", "R MAI", "R BAAc"]
 QW_COLS = [f"QW{i}" for i in range(1, 13)] + ["QW99"]
-DEFAULT_CSV = os.path.join(os.path.dirname(__file__), '..', 'all_data_summarized', 'data_noBAI.csv')
+DEFAULT_CSV = os.path.join(os.path.dirname(__file__), 'data_noBAI.csv')
 
 
 def load_pool(csv_path=None, donor_qw='QW1', target_qw='QW99'):

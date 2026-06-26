@@ -75,8 +75,8 @@
     </div>
     <div class="param-row">
       <label>Donor threshold</label>
-      <input type="number" id="p-threshold-real" value="0.0" step="0.01"
-             title="In donor QW signal units. Regions where donor UCB < threshold are masked as infeasible.">
+      <input type="number" id="p-threshold-real" value="0.5" step="0.01"
+             title="In donor QW signal units. Pool points where donor GP UCB &lt; threshold are feasible (hard mask for A/C). Set above the typical donor score so A and C have a non-empty feasible set.">
     </div>
     <div class="param-row">
       <label>Donor max pts</label>

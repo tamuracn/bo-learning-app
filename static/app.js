@@ -1,3 +1,7 @@
+// ── Helpers ───────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const param = id => parseFloat($(id).value);
+
 // ── Mode ──────────────────────────────────────────────────────────────────
 let appMode = 'toy'; // 'toy' | 'real'
 
@@ -56,10 +60,6 @@ const darkLayout = {
   legend: { bgcolor: 'rgba(0,0,0,0)', bordercolor: '#2e3245', borderwidth: 1, font: { size: 10 } },
   margin: { l: 50, r: 20, t: 20, b: 50 },
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const param = id => parseFloat($(id).value);
 
 function getConfig() {
   if (appMode === 'real') {
