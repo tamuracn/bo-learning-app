@@ -11,6 +11,8 @@
   --ca: #E8593C;
   --cb: #3B8BD4;
   --cc: #2CA02C;
+  --cd: #9B59B6;
+  --ce: #E67E22;
   --success: #22c55e;
   --warn: #f59e0b;
   --danger: #ef4444;
@@ -289,6 +291,8 @@ tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
 .method-pill.active-a { background: var(--ca); border-color: var(--ca); color: #fff; }
 .method-pill.active-b { background: var(--cb); border-color: var(--cb); color: #fff; }
 .method-pill.active-c { background: var(--cc); border-color: var(--cc); color: #fff; }
+.method-pill.active-d { background: var(--cd); border-color: var(--cd); color: #fff; }
+.method-pill.active-e { background: var(--ce); border-color: var(--ce); color: #fff; }
 
 .gp-iter-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px; }
 #gp-iter-slider { flex: 1; }

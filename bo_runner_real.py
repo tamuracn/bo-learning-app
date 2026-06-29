@@ -7,6 +7,8 @@ import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
 
+from scipy.interpolate import interp1d
+
 from data_model.imod_oracle import load_pool
 from botorch.models import SingleTaskGP, ModelListGP
 from botorch.fit import fit_gpytorch_mll
@@ -22,6 +24,21 @@ def _fit_gp(X, y):
     gp = SingleTaskGP(X, y)
     fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
     return gp.eval()
+
+
+def _build_kde_soft_constraint(x_donor_01, y_target_01, target_thr, window=0.15, grid_res=200):
+    """
+    Pre-compute P(target QW > target_thr | donor QW = x) from pool data.
+    Both arrays should be min-max scaled to [0, 1].
+    Returns a callable: float array in [0,1] → P(feasible) array.
+    """
+    qa_grid = np.linspace(0, 1, grid_res)
+    p_soft = []
+    for qa_val in qa_grid:
+        w = np.exp(-0.5 * ((x_donor_01 - qa_val) / window) ** 2)
+        w /= w.sum() + 1e-12
+        p_soft.append(float((w * (y_target_01 > target_thr)).sum()))
+    return interp1d(qa_grid, p_soft, bounds_error=False, fill_value=(p_soft[0], p_soft[-1]))
 
 
 def _gp_map(gp, X_pool_np, bounds, queried, mg=20):
@@ -61,8 +78,9 @@ def run_experiment_real(config, on_event):
     donor_qw    = config.get('donor_qw', 'QW1')
     target_qw   = config.get('target_qw', 'QW99')
     csv_path    = config.get('csv_path', None)
-    thr_real    = float(config.get('donor_threshold', 0.0))
-    n_iter      = int(config.get('n_iterations', 30))
+    thr_real      = float(config.get('donor_threshold', 0.0))
+    n_donor_steps = int(config.get('donor_samples', 60))
+    n_iter        = int(config.get('n_iterations', 30))
     n_seeds     = int(config.get('n_seeds', 3))
     beta        = float(config.get('ucb_beta', 2.0))
     conf        = float(config.get('constraint_confidence', 1.28))
@@ -97,7 +115,21 @@ def run_experiment_real(config, on_event):
     m_target, s_target = ypr.mean(), ypr.std().clamp(min=1e-6)
     yp       = (ypr - m_target) / s_target
 
+    # Donor objective at pool points (used by Method D donor BO)
+    ypr_donor_pool = torch.tensor(y_donor_pool_np, dtype=torch.float64).unsqueeze(-1)
+    yp_donor_pool  = (ypr_donor_pool - m_donor) / s_donor
+
     thr = float((thr_real - m_donor) / s_donor)
+
+    # KDE for Method E — min-max scale pool QW pairs to [0, 1]
+    y_d_min, y_d_max = y_donor_pool_np.min(), y_donor_pool_np.max()
+    y_t_min, y_t_max = y_target_pool_np.min(), y_target_pool_np.max()
+    x_donor_01  = (y_donor_pool_np  - y_d_min) / (y_d_max - y_d_min + 1e-12)
+    y_target_01 = (y_target_pool_np - y_t_min) / (y_t_max - y_t_min + 1e-12)
+    # Map donor_threshold to [0,1] on the TARGET QW axis using the same percentile
+    kde_pct       = float(np.mean(y_donor_pool_np <= thr_real))
+    n2_thr_01     = float(np.percentile(y_target_01, kde_pct * 100))
+    kde_pf        = _build_kde_soft_constraint(x_donor_01, y_target_01, n2_thr_01)
 
     def fmask(gp_donor):
         with torch.no_grad():
@@ -208,3 +240,93 @@ def run_experiment_real(config, on_event):
             nf  = int((fm & ~qm).sum())
             sel = max(batch, key=lambda i: float(ypr[i]))
             send('C', seed, it, sel, q, qm, gp_target, {'n_feasible': nf})
+
+        # ── D: Data Transfer Warm Start + EI ────────────────────────────────
+        # Run donor BO on the pool for n_donor_steps using the donor objective,
+        # then re-label those pool points with target values as a warm start.
+        aqu_func = "EI" # or "UCB"
+        q_d = {init}
+        qm_d = torch.zeros(Np, dtype=torch.bool); qm_d[init] = True
+        Xo_d = Xp[init].unsqueeze(0)
+        yo_d = yp_donor_pool[init].unsqueeze(0)
+        gp_d = _fit_gp(Xo_d, yo_d)
+        for _ in range(n_donor_steps - 1):
+            gp_d.eval()
+            with torch.no_grad():
+                if aqu_func == "UCB":
+                    v_d = UpperConfidenceBound(gp_d, beta=beta)(Xp.unsqueeze(1))
+                else:
+                    bf_d = yp_donor_pool[sorted(q_d)].max()
+                    v_d = ExpectedImprovement(gp_d, best_f=bf_d)(Xp.unsqueeze(1))
+                
+            v_d[qm_d] = -float('inf')
+            if (v_d == -float('inf')).all(): break
+            idx = int(v_d.argmax())
+            q_d.add(idx); qm_d[idx] = True
+            Xo_d = torch.cat([Xo_d, Xp[idx].unsqueeze(0)])
+            yo_d = torch.cat([yo_d, yp_donor_pool[idx].unsqueeze(0)])
+            gp_d = _fit_gp(Xo_d, yo_d)
+
+        # Warm-start target GP with target values at donor-selected pool points
+        q = set(q_d)
+        qm = torch.zeros(Np, dtype=torch.bool)
+        for i in q:
+            qm[i] = True
+        Xo = Xp[sorted(q)]
+        yo = yp[sorted(q)]
+        gp_target = _fit_gp(Xo, yo)
+        for it in range(1, n_iter + 1):
+            gp_target.eval()
+            with torch.no_grad():
+                if aqu_func == "UCB":
+                    v = UpperConfidenceBound(gp_target, beta=beta)(Xp.unsqueeze(1))
+                else:
+                    bf = yp[sorted(q)].max()
+                    v = ExpectedImprovement(gp_target, best_f=bf)(Xp.unsqueeze(1))
+            v[qm] = -float('inf')
+            if (v == -float('inf')).all(): break
+            batch = []
+            v_b = v.clone()
+            for _ in range(batch_size):
+                if (v_b == -float('inf')).all(): break
+                idx = int(v_b.argmax()); batch.append(idx); v_b[idx] = -float('inf')
+            for idx in batch:
+                q.add(idx); qm[idx] = True
+                Xo = torch.cat([Xo, Xp[idx].unsqueeze(0)])
+                yo = torch.cat([yo, yp[idx].unsqueeze(0)])
+            gp_target = _fit_gp(Xo, yo)
+            sel = max(batch, key=lambda i: float(ypr[i]))
+            send('D', seed, it, sel, q, qm, gp_target, {'n_transfer': len(q_d)})
+
+        # ── E: KDE Soft-Constraint EI ─────────────────────────────────────────
+        # Weight EI by the empirical P(target QW > threshold | donor QW = x),
+        # turning the cross-QW correlation into a soft feasibility prior.
+        q = {init}
+        qm = torch.zeros(Np, dtype=torch.bool); qm[init] = True
+        Xo = Xp[init].unsqueeze(0); yo = yp[init].unsqueeze(0)
+        gp_target = _fit_gp(Xo, yo)
+        for it in range(1, n_iter + 1):
+            gp_target.eval(); gp_donor.eval()
+            bf = yp[sorted(q)].max()
+            with torch.no_grad():
+                ei_vals = ExpectedImprovement(gp_target, best_f=bf)(Xp.unsqueeze(1))
+                donor_mu_std = gp_donor.posterior(Xp).mean.squeeze(-1)
+            # Convert donor GP mean from standardised units → raw → [0, 1]
+            donor_mu_raw = donor_mu_std * float(s_donor) + float(m_donor)
+            donor_mu_01  = ((donor_mu_raw.numpy() - y_d_min) / (y_d_max - y_d_min + 1e-12)).clip(0, 1)
+            p_feas = torch.tensor(kde_pf(donor_mu_01), dtype=torch.float64)
+            v = ei_vals * p_feas
+            v[qm] = -float('inf')
+            if (v == -float('inf')).all(): break
+            batch = []
+            v_b = v.clone()
+            for _ in range(batch_size):
+                if (v_b == -float('inf')).all(): break
+                idx = int(v_b.argmax()); batch.append(idx); v_b[idx] = -float('inf')
+            for idx in batch:
+                q.add(idx); qm[idx] = True
+                Xo = torch.cat([Xo, Xp[idx].unsqueeze(0)])
+                yo = torch.cat([yo, yp[idx].unsqueeze(0)])
+            gp_target = _fit_gp(Xo, yo)
+            sel = max(batch, key=lambda i: float(ypr[i]))
+            send('E', seed, it, sel, q, qm, gp_target, {'pof': round(float(p_feas[sel]), 4)})

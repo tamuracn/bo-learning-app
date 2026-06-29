@@ -83,6 +83,11 @@
       <input type="number" id="p-donor-max-pts" value="300" min="50" max="2000"
              title="Max donor training rows subsampled for GP speed">
     </div>
+    <div class="param-row">
+      <label>Donor BO steps</label>
+      <input type="number" id="p-donor-samples-real" value="60" min="5" max="500"
+             title="Number of donor BO iterations whose chosen points are transferred as warm start (Method D)">
+    </div>
   </div>
   </div><!-- end #section-real -->
 
@@ -160,6 +165,8 @@
         <div class="legend-item"><div class="legend-dot" style="background:var(--ca)"></div>Method A — HM+UCB</div>
         <div class="legend-item"><div class="legend-dot" style="background:var(--cb)"></div>Method B — CEI</div>
         <div class="legend-item"><div class="legend-dot" style="background:var(--cc)"></div>Method C — HM+EI</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#9B59B6"></div>Method D — Transfer_data</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#E67E22"></div>Method E — KDE Soft EI</div>
       </div>
       <div class="run-seed-row">
         <span class="section-title" style="margin-bottom:0;white-space:nowrap">Viewing:</span>
@@ -202,6 +209,8 @@
           <button class="method-pill active-a" data-method="A">A — HM+UCB</button>
           <button class="method-pill"          data-method="B">B — CEI</button>
           <button class="method-pill"          data-method="C">C — HM+EI</button>
+          <button class="method-pill"          data-method="D">D — Transfer_data</button>
+          <button class="method-pill"          data-method="E">E — KDE Soft EI</button>
         </div>
       </div>
       <div>

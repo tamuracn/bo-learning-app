@@ -38,17 +38,20 @@ const state = {
   totalIter: 30,
   totalSeeds: 3,
   // data[method] = { [seed]: [{iter, best, sel},...] }
-  data: { A: {}, B: {}, C: {} },
+  data: { A: {}, B: {}, C: {}, D: {}, E: {} },
   runSeed: 'all',
   gpMethod: 'A',
   gpSeed: 0,
   gpIter: 1,
   maxGpIter: 1,
+  threshold: 2.0,
 };
 
-const COLORS = { A: '#E8593C', B: '#3B8BD4', C: '#2CA02C' };
-const ALPHA  = { A: 'rgba(232,89,60,0.15)', B: 'rgba(59,139,212,0.15)', C: 'rgba(44,160,44,0.15)' };
-const NAMES  = { A: 'HM+UCB', B: 'CEI', C: 'HM+EI' };
+const PLASMA = [[0,'#0d0887'],[0.13,'#5302a3'],[0.25,'#8b0aa5'],[0.38,'#b83289'],[0.5,'#db5c68'],[0.63,'#f48849'],[0.75,'#febc2a'],[1,'#f0f921']];
+
+const COLORS = { A: '#E8593C', B: '#3B8BD4', C: '#2CA02C', D: '#9B59B6', E: '#E67E22' };
+const ALPHA  = { A: 'rgba(232,89,60,0.15)', B: 'rgba(59,139,212,0.15)', C: 'rgba(44,160,44,0.15)', D: 'rgba(155,89,182,0.15)', E: 'rgba(230,126,34,0.15)' };
+const NAMES  = { A: 'HM+UCB', B: 'CEI', C: 'HM+EI', D: 'Transfer_data', E: 'KDE Soft EI' };
 
 const plotCfg = { displayModeBar: false, responsive: true };
 const darkLayout = {
@@ -68,6 +71,7 @@ function getConfig() {
       target_qw:             $('p-target-qw').value,
       donor_threshold:       param('p-threshold-real'),
       donor_max_pts:         param('p-donor-max-pts'),
+      donor_samples:         param('p-donor-samples-real'),
       n_iterations:          param('p-n-iter'),
       n_seeds:               param('p-n-seeds'),
       ucb_beta:              param('p-ucb-beta'),
@@ -131,7 +135,7 @@ async function loadLandscape() {
     colorbar: { thickness: 12, len: 0.8, tickfont: { size: 9 } }
   }];
 
-  Plotly.react('plot-land-donor',  mkHeat(rDonor,  'Plasma'),  heatLayout(), plotCfg);
+  Plotly.react('plot-land-donor',  mkHeat(rDonor,  PLASMA),  heatLayout(), plotCfg);
   Plotly.react('plot-land-target', mkHeat(rTarget, 'Viridis'), heatLayout(), plotCfg);
 
   // Cross-section slice at each layer's peak y
@@ -185,7 +189,7 @@ async function loadLandscapeReal() {
   }];
 
   Plotly.react('plot-land-donor',
-    mkScatter(data.donor, 'score', 'Plasma', data.donor_qw),
+    mkScatter(data.donor, 'score', PLASMA, data.donor_qw),
     scatterLayout('R BAAc', 'R MAI'), plotCfg);
 
   Plotly.react('plot-land-target',
@@ -212,7 +216,7 @@ async function loadLandscapeReal() {
       type: 'scatter3d', mode: 'markers',
       x: data.donor.r_baac, y: data.donor.r_mai, z: data.donor.score,
       name: `Donor (${data.donor_qw})`,
-      marker: { color: data.donor.score, colorscale: 'Plasma', size: 4, opacity: 0.8,
+      marker: { color: data.donor.score, colorscale: PLASMA, size: 4, opacity: 0.8,
                 colorbar: { thickness: 10, len: 0.5, x: 1.05, title: { text: data.donor_qw, font: { size: 10 } } } },
       hovertemplate: `R BAAc: %{x:.3f}<br>R MAI: %{y:.3f}<br>${data.donor_qw}: %{z:.4f}<extra>Donor</extra>`,
     },
@@ -295,12 +299,13 @@ $('btn-run').addEventListener('click', async () => {
   const cfg = getConfig();
   state.totalIter  = cfg.n_iterations;
   state.totalSeeds = cfg.n_seeds;
-  state.data       = { A: {}, B: {}, C: {} };
+  state.data       = { A: {}, B: {}, C: {}, D: {}, E: {} };
   state.since      = 0;
   state.jobId      = null;
   state.maxGpIter  = 1;
   state.gpSeed     = 0;
   state.runSeed    = 'all';
+  state.threshold  = cfg.donor_threshold;
 
   populateSeedSelect(cfg.n_seeds);
   populateRunSeedSelect(cfg.n_seeds);
@@ -360,7 +365,7 @@ async function pollJob() {
 
     const cur = body.current;
     if (cur.method) {
-      const totalEvents = state.totalIter * state.totalSeeds * 3;
+      const totalEvents = state.totalIter * state.totalSeeds * 5;
       const pct = Math.min(100, Math.round(state.since / totalEvents * 100));
       $('progress-bar').style.width = pct + '%';
       setStatus('running',
@@ -439,7 +444,7 @@ function buildConvergenceTraces(threshold, nIter, seedFilter = 'all', withBands 
   };
   const traces_conv = [thresh], traces_sel = [thresh];
 
-  for (const method of ['A', 'B', 'C']) {
+  for (const method of ['A', 'B', 'C', 'D', 'E']) {
     const color = COLORS[method];
 
     if (seedFilter === 'all') {
@@ -484,7 +489,7 @@ function buildConvergenceTraces(threshold, nIter, seedFilter = 'all', withBands 
 }
 
 function updateConvergencePlots(final = false) {
-  const threshold = param('p-threshold');
+  const threshold = state.threshold;
   const nIter     = param('p-n-iter');
   const { traces_conv, traces_sel } = buildConvergenceTraces(
     threshold, nIter, state.runSeed, final
@@ -516,13 +521,13 @@ $('run-seed-select').addEventListener('change', e => {
 // ── Summary table ─────────────────────────────────────────────────────────
 function showSummary() {
   const nSeeds    = param('p-n-seeds');
-  const winCounts = { A: 0, B: 0, C: 0 };
+  const winCounts = { A: 0, B: 0, C: 0, D: 0, E: 0 };
   const stats     = {};
 
   const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
   const std = arr => { const m = avg(arr); return Math.sqrt(arr.reduce((a, b) => a + (b-m)**2, 0) / arr.length); };
 
-  for (const m of ['A', 'B', 'C']) {
+  for (const m of ['A', 'B', 'C', 'D', 'E']) {
     const seeds = Object.values(state.data[m]);
     if (!seeds.length) continue;
     const finals = seeds.map(s => s[s.length - 1]?.best ?? 0);
@@ -535,7 +540,7 @@ function showSummary() {
 
   for (let i = 0; i < nSeeds; i++) {
     const scores = {};
-    for (const m of ['A', 'B', 'C']) {
+    for (const m of ['A', 'B', 'C', 'D', 'E']) {
       if (state.data[m][i]) scores[m] = state.data[m][i].at(-1)?.best ?? -Infinity;
     }
     const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0];
@@ -543,11 +548,11 @@ function showSummary() {
   }
 
   const winner = Object.entries(winCounts).sort((a, b) => b[1] - a[1])[0][0];
-  const labels = { A: 'A — HM+UCB', B: 'B — CEI', C: 'C — HM+EI' };
+  const labels = { A: 'A — HM+UCB', B: 'B — CEI', C: 'C — HM+EI', D: 'D — Transfer_data', E: 'E — KDE Soft EI' };
   const tbody  = $('summary-table').querySelector('tbody');
   tbody.innerHTML = '';
 
-  for (const m of ['A', 'B', 'C']) {
+  for (const m of ['A', 'B', 'C', 'D', 'E']) {
     if (!stats[m]) continue;
     const tr = document.createElement('tr');
     if (m === winner) tr.className = 'winner-row';

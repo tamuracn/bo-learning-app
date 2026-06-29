@@ -153,7 +153,7 @@ def gp_map(job_id):
 def landscape_real():
     from data_model.imod_oracle import load_pool
     donor_qw  = request.args.get('donor_qw',  'QW1')
-    target_qw = request.args.get('target_qw', 'QW99')
+    target_qw = request.args.get('target_qw', 'QW2')
     X_pool, y_donor_pool, y_target_pool, X_donor_np, y_donor_train = load_pool(
         None, donor_qw, target_qw
     )
