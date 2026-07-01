@@ -16,8 +16,8 @@ async function initQWSelects() {
         opt.value = opt.textContent = qw;
         sel.appendChild(opt);
       });
-      // default: donor = QW1, target = QW99
-      sel.value = i === 0 ? 'QW1' : 'QW99';
+      // default: donor = QW1, target = QW2
+      sel.value = i === 0 ? 'QW1' : 'QW2';
     });
   } catch (e) {
     console.warn('Could not load QW columns:', e);
@@ -49,9 +49,9 @@ const state = {
 
 const PLASMA = [[0,'#0d0887'],[0.13,'#5302a3'],[0.25,'#8b0aa5'],[0.38,'#b83289'],[0.5,'#db5c68'],[0.63,'#f48849'],[0.75,'#febc2a'],[1,'#f0f921']];
 
-const COLORS = { A: '#E8593C', B: '#3B8BD4', C: '#2CA02C', D: '#9B59B6', E: '#E67E22' };
-const ALPHA  = { A: 'rgba(232,89,60,0.15)', B: 'rgba(59,139,212,0.15)', C: 'rgba(44,160,44,0.15)', D: 'rgba(155,89,182,0.15)', E: 'rgba(230,126,34,0.15)' };
-const NAMES  = { A: 'HM+UCB', B: 'CEI', C: 'HM+EI', D: 'Transfer_data', E: 'KDE Soft EI' };
+const COLORS = { A: '#E8593C', B: '#3B8BD4', C: '#2CA02C', D: '#9B59B6', E: '#E67E22', F: '#17BECF' };
+const ALPHA  = { A: 'rgba(232,89,60,0.15)', B: 'rgba(59,139,212,0.15)', C: 'rgba(44,160,44,0.15)', D: 'rgba(155,89,182,0.15)', E: 'rgba(230,126,34,0.15)', F: 'rgba(23,190,207,0.15)' };
+const NAMES  = { A: 'HM+UCB', B: 'CEI', C: 'HM+EI', D: 'Transfer_data', E: 'KDE Soft EI', F: 'Kernel Transfer+UCB' };
 
 const plotCfg = { displayModeBar: false, responsive: true };
 const darkLayout = {
@@ -444,7 +444,7 @@ function buildConvergenceTraces(threshold, nIter, seedFilter = 'all', withBands 
   };
   const traces_conv = [thresh], traces_sel = [thresh];
 
-  for (const method of ['A', 'B', 'C', 'D', 'E']) {
+  for (const method of ['A', 'B', 'C', 'D', 'E', 'F']) {
     const color = COLORS[method];
 
     if (seedFilter === 'all') {

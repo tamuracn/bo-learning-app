@@ -26,6 +26,14 @@ def _fit_gp(X, y):
     return gp.eval()
 
 
+def _fit_gp_with_kernel_transfer(X, y, donor_state_dict):
+    """Warm-start a GP's kernel hyperparameters from a donor state_dict, then re-fit on (X, y)."""
+    gp = SingleTaskGP(X, y)
+    gp.load_state_dict(donor_state_dict, strict=False)
+    fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+    return gp.eval()
+
+
 def _build_kde_soft_constraint(x_donor_01, y_target_01, target_thr, window=0.15, grid_res=200):
     qa_grid = np.linspace(0, 1, grid_res)
     p_soft = []
@@ -295,3 +303,31 @@ def run_experiment(config, on_event):
             gp_target = _fit_gp(Xo, yo)
             sel = max(batch, key=lambda i: float(ypr[i]))
             send('E', seed, it, sel, q, qm, gp_target, {'pof': round(float(p_feas[sel]), 4)})
+
+        # ── F: Kernel Transfer + UCB ──────────────────────────────────────────
+        # Copy kernel hyperparameters (lengthscale, outputscale, noise) from the
+        # donor GP as a warm start, then re-fit on target data only. No donor
+        # data points are shared with the target GP.
+        donor_state_dict = gp_donor.state_dict()
+        q = {init}
+        qm = torch.zeros(Np, dtype=torch.bool); qm[init] = True
+        Xo = Xp[init].unsqueeze(0); yo = yp[init].unsqueeze(0)
+        gp_target = _fit_gp_with_kernel_transfer(Xo, yo, donor_state_dict)
+        for it in range(1, n_iter + 1):
+            gp_target.eval()
+            with torch.no_grad():
+                v = UpperConfidenceBound(gp_target, beta=beta)(Xp.unsqueeze(1))
+            v[qm] = -float('inf')
+            if (v == -float('inf')).all(): break
+            batch = []
+            v_b = v.clone()
+            for _ in range(batch_size):
+                if (v_b == -float('inf')).all(): break
+                idx = int(v_b.argmax()); batch.append(idx); v_b[idx] = -float('inf')
+            for idx in batch:
+                q.add(idx); qm[idx] = True
+                Xo = torch.cat([Xo, Xp[idx].unsqueeze(0)])
+                yo = torch.cat([yo, yp[idx].unsqueeze(0)])
+            gp_target = _fit_gp_with_kernel_transfer(Xo, yo, donor_state_dict)
+            sel = max(batch, key=lambda i: float(ypr[i]))
+            send('F', seed, it, sel, q, qm, gp_target)
